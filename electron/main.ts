@@ -240,6 +240,26 @@ async function updateConfluencePageBodyWithImage(
 }
 
 
+async function runWithConcurrencyLimit<T>(
+    tasks: (() => Promise<T>)[],
+    limit: number
+): Promise<T[]> {
+    const results: T[] = new Array(tasks.length);
+    let currentIndex = 0;
+
+    const worker = async () => {
+        while (currentIndex < tasks.length) {
+            const taskIndex = currentIndex++;
+            results[taskIndex] = await tasks[taskIndex]();
+        }
+    };
+
+    const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
+    await Promise.all(workers);
+
+    return results;
+}
+
 async function fetchBambooData(plansQuery: string, secrets: BambooSecrets) {
     const authHeader = `Bearer ${secrets.apiToken}`;
     let host = secrets.host.trim();
@@ -251,69 +271,70 @@ async function fetchBambooData(plansQuery: string, secrets: BambooSecrets) {
 
     console.log(`BAMBOO-FETCH: ${planKeys.join(', ')}`);
 
-    const allData: any[] = [];
     const maxResultsPerRequest = 25;
     const totalResultsDesired = 100;
+    const tasks: (() => Promise<any[]>)[] = [];
 
     for (const planKey of planKeys) {
-        // Fetch executions for the plan in batches to prevent 504 Gateway Timeout
         for (let startIndex = 0; startIndex < totalResultsDesired; startIndex += maxResultsPerRequest) {
-            try {
-                const url = `${host}/rest/api/latest/result/${planKey}.json?expand=results.result&max-results=${maxResultsPerRequest}&start-index=${startIndex}`;
-                const response = await axios.get(url, {
-                    headers: {
-                        'Authorization': authHeader,
-                        'Accept': 'application/json'
-                    },
-                    proxy: false // Prevent node picking up corporate proxy env vars that fail on internal hosts
-                });
+            tasks.push(async () => {
+                const startTime = Date.now();
+                const startLogTimeStr = new Date().toLocaleTimeString();
+                console.log(`[${startLogTimeStr}] START  fetch -> ${planKey} (index ${startIndex})`);
 
-                const results = response.data.results?.result || [];
-                
-                for (const res of results) {
-                    // Determine if it actually has tests
-                    const failed = parseInt(res.failedTestCount || '0', 10);
-                    const successful = parseInt(res.successfulTestCount || '0', 10);
-                    const quarantined = parseInt(res.quarantinedTestCount || '0', 10);
-                    const skipped = parseInt(res.skippedTestCount || '0', 10);
+                try {
+                    const url = `${host}/rest/api/latest/result/${planKey}.json?expand=results.result&max-results=${maxResultsPerRequest}&start-index=${startIndex}`;
+                    const response = await axios.get(url, {
+                        headers: {
+                            'Authorization': authHeader,
+                            'Accept': 'application/json'
+                        },
+                        proxy: false
+                    });
+
+                    const results = response.data.results?.result || [];
+                    const batchData = [];
                     
-                    let total = failed + successful + quarantined + skipped;
-                    if (total === 0) {
-                        // try to parse summary string if counts are 0
-                        const sumStr = String(res.buildTestSummary || "");
-                        const m = sumStr.match(/(\d[\d,]*)\s+of\s+(\d[\d,]*)/);
-                        if (m) {
-                            total = parseInt(m[2].replace(/,/g, ''), 10);
+                    for (const res of results) {
+                        const failed = parseInt(res.failedTestCount || '0', 10);
+                        const successful = parseInt(res.successfulTestCount || '0', 10);
+                        const quarantined = parseInt(res.quarantinedTestCount || '0', 10);
+                        const skipped = parseInt(res.skippedTestCount || '0', 10);
+                        
+                        let total = failed + successful + quarantined + skipped;
+                        if (total === 0) {
+                            const sumStr = String(res.buildTestSummary || "");
+                            const m = sumStr.match(/(\d[\d,]*)\s+of\s+(\d[\d,]*)/);
+                            if (m) {
+                                total = parseInt(m[2].replace(/,/g, ''), 10);
+                            }
+                        }
+
+                        if (total > 0) {
+                            batchData.push({
+                                planKey: planKey,
+                                buildCompletedTime: res.buildCompletedTime,
+                                successfulTestCount: successful,
+                                failedTestCount: failed
+                            });
                         }
                     }
 
-                    if (total > 0) {
-                        allData.push({
-                            planKey: planKey,
-                            buildNumber: res.buildNumber,
-                            buildState: res.buildState,
-                            buildCompletedTime: res.buildCompletedTime,
-                            successfulTestCount: successful,
-                            failedTestCount: failed,
-                            quarantinedTestCount: quarantined,
-                            skippedTestCount: skipped,
-                            totalTestCount: total
-                        });
-                    }
-                }
+                    const duration = Date.now() - startTime;
+                    console.log(`[${new Date().toLocaleTimeString()}] FINISH fetch -> ${planKey} (index ${startIndex}) in ${duration}ms [got ${results.length} items]`);
 
-                // If Bamboo returned fewer results than requested, we've reached the end
-                if (results.length < maxResultsPerRequest) {
-                    break;
+                    return batchData;
+                } catch (e: any) {
+                    const duration = Date.now() - startTime;
+                    console.error(`[${new Date().toLocaleTimeString()}] ERROR  fetch -> ${planKey} (index ${startIndex}) failed after ${duration}ms`, e.message);
+                    return [];
                 }
-            } catch (e: any) {
-                console.error(`Failed to fetch plan ${planKey} at index ${startIndex}`, e.message);
-                break; // stop paginating this plan if an error occurs
-            }
+            });
         }
     }
 
-    return allData;
+    const resultsArray = await runWithConcurrencyLimit(tasks, 20);
+    return resultsArray.flat();
 }
 
 // Check if we have valid credentials saved

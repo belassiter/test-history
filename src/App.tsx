@@ -539,9 +539,13 @@ export default function App() {
                             )}
                         </div>
                     </div>
-                    <div style={{ flex: 1, width: '100%', minHeight: 0, marginTop: 0 }}>
+                    <div style={{ flex: 1, width: '100%', minHeight: 0, marginTop: 0, position: 'relative' }}>
                         {chartData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
+                            <>
+                                <Text size="sm" c="dimmed" style={{ position: 'absolute', top: 0, left: 10, zIndex: 10, lineHeight: '30px' }}>
+                                    Plans: {plans.split(',').map(p => p.trim()).filter(Boolean).join(', ')}
+                                </Text>
+                                <ResponsiveContainer width="100%" height="100%">
                                   <ComposedChart data={chartData} margin={{ top: 10, right: 46, left: 20, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e0e0e0" />
                                     <XAxis
@@ -553,7 +557,7 @@ export default function App() {
                                     <YAxis
                                         domain={[0, yAxisConfig.domainMax]}
                                         ticks={yAxisConfig.ticks}
-                                        tickFormatter={val => (metric === 'percent' || metric === 'fail_percent') ? `${(val * 100).toFixed(0)}%` : val}
+                                        tickFormatter={val => (metric === 'percent' || metric === 'fail_percent') ? `${parseFloat((val * 100).toFixed(1))}%` : val}
                                           allowDataOverflow={true}
                                           tick={{ fontSize: 12 }}
                                       >
@@ -594,6 +598,7 @@ export default function App() {
                                     )}
                                 </ComposedChart>
                             </ResponsiveContainer>
+                            </>
                         ) : (
                             <Group justify="center" align="center" style={{ height: '100%' }}>
                                 <Text c="dimmed">No data available. Adjust dates or click Pull Data.</Text>
