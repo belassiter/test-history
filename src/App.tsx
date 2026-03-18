@@ -29,6 +29,8 @@ export interface BulkPublishJob {
     status: 'pending' | 'active' | 'success' | 'failed';
 }
 
+const PLAN_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
+
 export default function App() {
   const [credentialsOpen, { open: openCredentials, close: closeCredentials }] = useDisclosure(false);
   const [confluenceModalOpen, { open: openConfluenceModal, close: closeConfluenceModal }] = useDisclosure(false);
@@ -413,6 +415,7 @@ export default function App() {
   };
 
   const metricLabel = METRICS.find(m => m.value === metric)?.label || metric;
+  const uniquePlans = plans.split(",").map(p => p.trim()).filter(Boolean);
 
   return (
     <AppShell
@@ -557,7 +560,7 @@ export default function App() {
                                     <YAxis
                                         domain={[0, yAxisConfig.domainMax]}
                                         ticks={yAxisConfig.ticks}
-                                        tickFormatter={val => (metric === 'percent' || metric === 'fail_percent') ? `${parseFloat((val * 100).toFixed(1))}%` : val}
+                                        tickFormatter={val => (metric === 'percent' || metric === 'fail_percent') ? `${parseFloat((val * 100).toFixed(6))}%` : val}
                                           allowDataOverflow={true}
                                           tick={{ fontSize: 12 }}
                                       >
@@ -566,11 +569,12 @@ export default function App() {
                                     <Tooltip
                                         formatter={(value: any, name: string, props: any) => {
                                             const payload = props.payload;
+                                            if (typeof name === "string" && name.startsWith("Fail_")) return [value, name.replace("Fail_", "")];
                                             if ((name.includes('Percent') || metric === 'percent' || metric === 'fail_percent') && metric !== 'fail_count') {
                                                 const originalName = name.replace('Percent', '');
                                                 const absValue = payload[originalName];
                                                 const ptValue = payload[originalName + 'Percent'];
-                                                return [`${(ptValue * 100).toFixed(1)}% (${absValue})`, originalName];
+                                                return [`${(ptValue * 100).toFixed(6)}% (${absValue})`, originalName];
                                             }
                                             // Fallback for count
                                             return [value, name];
@@ -582,18 +586,30 @@ export default function App() {
                                         verticalAlign="top"
                                         align="right"
                                         wrapperStyle={{ top: 0, right: 10, lineHeight: '30px' }}
-                                        formatter={(val) => val.replace('Percent', '')}
+                                        formatter={(val) => typeof val === "string" && val.startsWith("Fail_") ? val.replace("Fail_", "") : (typeof val === "string" ? val.replace("Percent", "") : val)}
                                     />
 
                                     {graphType === 'bar' ? (
                                         <>
                                             {metric !== 'fail_percent' && metric !== 'fail_count' && <Bar dataKey={metric === 'percent' ? "PassPercent" : "Pass"} stackId="a" fill="#2b8a3e" isAnimationActive={false} />}
-                                            <Bar dataKey={(metric === 'percent' || metric === 'fail_percent') ? "FailPercent" : "Fail"} stackId="a" fill="#f59f00" isAnimationActive={false} />
+                                            {metric === 'fail_count' ? (
+                                                uniquePlans.map((plan, i) => (
+                                                    <Bar key={plan} dataKey={`Fail_${plan}`} stackId="a" fill={PLAN_COLORS[i % PLAN_COLORS.length]} isAnimationActive={false} />
+                                                ))
+                                            ) : (
+                                                <Bar dataKey={(metric === 'percent' || metric === 'fail_percent') ? "FailPercent" : "Fail"} stackId="a" fill="#f59f00" isAnimationActive={false} />
+                                            )}
                                         </>
                                     ) : (
                                         <>
                                             {metric !== 'fail_percent' && metric !== 'fail_count' && <Area type="monotone" dataKey={metric === 'percent' ? "PassPercent" : "Pass"} stackId="1" fill="#2b8a3e" stroke="#2b8a3e" isAnimationActive={false} />}
-                                            <Area type="monotone" dataKey={(metric === 'percent' || metric === 'fail_percent') ? "FailPercent" : "Fail"} stackId="1" fill="#f59f00" stroke="#f59f00" isAnimationActive={false} />
+                                            {metric === 'fail_count' ? (
+                                                uniquePlans.map((plan, i) => (
+                                                    <Area key={plan} type="monotone" dataKey={`Fail_${plan}`} stackId="1" fill={PLAN_COLORS[i % PLAN_COLORS.length]} stroke={PLAN_COLORS[i % PLAN_COLORS.length]} isAnimationActive={false} />
+                                                ))
+                                            ) : (
+                                                <Area type="monotone" dataKey={(metric === 'percent' || metric === 'fail_percent') ? "FailPercent" : "Fail"} stackId="1" fill="#f59f00" stroke="#f59f00" isAnimationActive={false} />
+                                            )}
                                         </>
                                     )}
                                 </ComposedChart>
