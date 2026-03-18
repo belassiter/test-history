@@ -1,0 +1,17 @@
+
+# Secrets
+jira-secrets.json
+
+# Jira Cycle Time example app
+example/
+reference-app
+jira-burnup-src
+
+# 
+node_modules
+dist
+dist-electron
+release
+release-simple
+*.local
+*.zip
