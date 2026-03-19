@@ -1,4 +1,6 @@
-import dayjs from "dayjs";
+import sys
+
+content = '''import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import { BuildData } from "../types";
@@ -70,3 +72,6 @@ export function processBambooData(
 
     return dataByDate;
 }
+'''
+with open('src/utils/dataProcessor.ts', 'w') as f:
+    f.write(content)
